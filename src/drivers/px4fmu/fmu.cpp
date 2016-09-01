@@ -120,6 +120,7 @@ public:
 		MODE_3PWM,
 		MODE_3PWM1CAP,
 		MODE_4PWM,
+        MODE_5PWM,
 		MODE_6PWM,
 		MODE_8PWM,
 		MODE_4CAP,
@@ -554,7 +555,6 @@ PX4FMU::set_mode(Mode mode)
 		_pwm_mask = 0x7;
 		_pwm_initialized = false;
 		break;
-
 	case MODE_4PWM: // v1 or v2 multi-port as 4 PWM outs
 		DEVICE_DEBUG("MODE_4PWM");
 
@@ -564,13 +564,19 @@ PX4FMU::set_mode(Mode mode)
 		_pwm_alt_rate_channels = 0;
 		_pwm_mask = 0xf;
 		_pwm_initialized = false;
+        break;
 
-		break;
+    case MODE_5PWM:
+        _pwm_default_rate = 50;
+        _pwm_alt_rate = 50;
+        _pwm_alt_rate_channels = 0;
+        _pwm_mask = 0x31;
+        _pwm_initialized = false;
+        break;
 
 #if defined(BOARD_HAS_PWM) && BOARD_HAS_PWM >= 6
-
-	case MODE_6PWM:
-		DEVICE_DEBUG("MODE_6PWM");
+    case MODE_6PWM:
+        DEVICE_DEBUG("MODE_6PWM");
 
 		/* default output rates */
 		_pwm_default_rate = 50;
@@ -578,7 +584,6 @@ PX4FMU::set_mode(Mode mode)
 		_pwm_alt_rate_channels = 0;
 		_pwm_mask = 0x3f;
 		_pwm_initialized = false;
-
 		break;
 #endif
 
@@ -1045,6 +1050,10 @@ PX4FMU::cycle()
 			case MODE_4PWM:
 				num_outputs = 4;
 				break;
+
+            case MODE_5PWM:
+                num_outputs = 5;
+                break;
 
 			case MODE_6PWM:
 				num_outputs = 6;
@@ -1534,6 +1543,7 @@ PX4FMU::ioctl(file *filp, int cmd, unsigned long arg)
 	case MODE_2PWM:
 	case MODE_3PWM:
 	case MODE_4PWM:
+    case MODE_5PWM:
 	case MODE_2PWM2CAP:
 	case MODE_3PWM1CAP:
 #if defined(BOARD_HAS_PWM) && BOARD_HAS_PWM >= 6
@@ -1801,8 +1811,14 @@ PX4FMU::pwm_ioctl(file *filp, int cmd, unsigned long arg)
 #if defined(BOARD_HAS_PWM) && BOARD_HAS_PWM >= 6
 
 	case PWM_SERVO_SET(5):
+        if (_mode < MODE_6PWM) {
+            ret = -EINVAL;
+            break;
+        }
+
+    /* FALLTHROUGH */
 	case PWM_SERVO_SET(4):
-		if (_mode < MODE_6PWM) {
+        if (_mode < MODE_5PWM) {
 			ret = -EINVAL;
 			break;
 		}
@@ -1849,8 +1865,14 @@ PX4FMU::pwm_ioctl(file *filp, int cmd, unsigned long arg)
 #if defined(BOARD_HAS_PWM) && BOARD_HAS_PWM >= 6
 
 	case PWM_SERVO_GET(5):
+        if (_mode < MODE_6PWM) {
+            ret = -EINVAL;
+            break;
+        }
+
+    /* FALLTHROUGH */
 	case PWM_SERVO_GET(4):
-		if (_mode < MODE_6PWM) {
+        if (_mode < MODE_5PWM) {
 			ret = -EINVAL;
 			break;
 		}
@@ -1910,6 +1932,10 @@ PX4FMU::pwm_ioctl(file *filp, int cmd, unsigned long arg)
 			break;
 #endif
 
+        case MODE_5PWM:
+            *(unsigned *)arg = 5;
+            break;
+
 		case MODE_4PWM:
 			*(unsigned *)arg = 4;
 			break;
@@ -1955,6 +1981,8 @@ PX4FMU::pwm_ioctl(file *filp, int cmd, unsigned long arg)
 			case 4:
 				set_mode(MODE_4PWM);
 				break;
+            case 5:
+                set_mode(MODE_5PWM);
 
 #if defined(BOARD_HAS_PWM) && BOARD_HAS_PWM >=6
 
@@ -2003,7 +2031,9 @@ PX4FMU::pwm_ioctl(file *filp, int cmd, unsigned long arg)
 			case PWM_SERVO_MODE_4PWM:
 				ret = set_mode(MODE_4PWM);
 				break;
-
+            case PWM_SERVO_MODE_5PWM:
+                ret = set_mode(MODE_5PWM);
+                break;
 			case PWM_SERVO_MODE_6PWM:
 				ret = set_mode(MODE_6PWM);
 				break;
@@ -2506,6 +2536,7 @@ enum PortMode {
 	PORT_GPIO_AND_SERIAL,
 	PORT_PWM_AND_SERIAL,
 	PORT_PWM_AND_GPIO,
+    PORT_PWM5,
 	PORT_PWM4,
 	PORT_PWM3,
 	PORT_PWM2,
@@ -2545,6 +2576,11 @@ fmu_new_mode(PortMode new_mode)
 		break;
 
 #if defined(BOARD_HAS_PWM) && BOARD_HAS_PWM >= 6
+
+    case PORT_PWM5:
+        /* select 5-pin PWM mode */
+        servo_mode = PX4FMU::MODE_5PWM;
+        break;
 
 	case PORT_PWM4:
 		/* select 4-pin PWM mode */
@@ -2981,6 +3017,9 @@ fmu_main(int argc, char *argv[])
 		new_mode = PORT_FULL_PWM;
 
 #if defined(BOARD_HAS_PWM) && BOARD_HAS_PWM >= 6
+
+    } else if (!strcmp(verb, "mode_pwm5")) {
+        new_mode = PORT_PWM5;
 
 	} else if (!strcmp(verb, "mode_pwm4")) {
 		new_mode = PORT_PWM4;
